@@ -1,17 +1,54 @@
-name: Validate Quarto project
+name: Validate and render
+
 on:
   push:
     branches: [main]
   pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: validate-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   validate:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
+
     steps:
-      - uses: actions/checkout@v4
-      - uses: r-lib/actions/setup-r@v2
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up R
+        uses: r-lib/actions/setup-r@v2
         with:
-          r-version: '4.4.2'
-      - uses: quarto-dev/quarto-actions/setup@v2
-      - uses: r-lib/actions/setup-renv@v2
-      - run: Rscript -e "testthat::test_dir('tests/testthat')"
-      - run: quarto render
+          r-version: "4.6.1"
+          use-public-rspm: true
+
+      - name: Set up Quarto
+        uses: quarto-dev/quarto-actions/setup@v2
+        with:
+          version: "1.8.21"
+
+      - name: Restore locked R dependencies
+        uses: r-lib/actions/setup-renv@v2
+
+      - name: Validate committed snapshots
+        run: Rscript -e "source('R/analysis.R'); sources <- read_crop_sources(); validate_crop_sources(sources)"
+
+      - name: Run test suite
+        run: Rscript tests/testthat.R
+
+      - name: Render bilingual website
+        run: quarto render
+
+      - name: Upload rendered website
+        uses: actions/upload-artifact@v4
+        with:
+          name: canadian-crop-sql-analytics-site
+          path: _site
+          if-no-files-found: error
+          retention-days: 14
