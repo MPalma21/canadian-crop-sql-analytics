@@ -79,7 +79,6 @@ Canadian breweries, distilleries and food manufacturers need to monitor grain av
 
 ```{r}
 #| label: data-quality
-#| echo: false
 quality |>
   transform(
     first_date = format(first_date, "%Y-%m-%d"),
@@ -113,11 +112,33 @@ The database is recreated during every run. Composite indexes support the cropâ€
 
 ## National production
 
+The analytical query is executed directly in the notebook so the transformation from relational data to the chart remains visible and reproducible.
+
+```{sql, connection=connection, output.var="latest_notebook"}
+--| label: sql-latest-production
+WITH latest_year AS (
+  SELECT MAX(YEAR) AS year
+  FROM crop_data
+  WHERE GEO = 'Canada'
+)
+SELECT
+  c.YEAR,
+  c.CROP_TYPE,
+  c.SEEDED_AREA AS seeded_area_hectares,
+  c.HARVESTED_AREA AS harvested_area_hectares,
+  c.PRODUCTION AS production_metric_tonnes,
+  c.AVG_YIELD AS yield_kg_per_hectare
+FROM crop_data AS c
+INNER JOIN latest_year AS y
+  ON c.YEAR = y.year
+WHERE c.GEO = 'Canada'
+ORDER BY c.PRODUCTION DESC;
+```
+
 ```{r}
 #| label: latest-production
-#| echo: false
 #| fig-alt: "Bar chart comparing Canadian production of wheat, canola, barley and rye in 2020."
-ggplot(latest, aes(reorder(CROP_TYPE, production_metric_tonnes), production_metric_tonnes, fill = CROP_TYPE)) +
+ggplot(latest_notebook, aes(reorder(CROP_TYPE, production_metric_tonnes), production_metric_tonnes, fill = CROP_TYPE)) +
   geom_col(show.legend = FALSE, width = 0.7) +
   coord_flip() +
   scale_y_continuous(labels = scales::label_number(scale_cut = scales::cut_short_scale())) +
@@ -132,11 +153,24 @@ ggplot(latest, aes(reorder(CROP_TYPE, production_metric_tonnes), production_metr
   theme(plot.title = element_text(face = "bold"), panel.grid.minor = element_blank())
 ```
 
+```{sql, connection=connection, output.var="trends_notebook"}
+--| label: sql-production-trends
+SELECT
+  YEAR,
+  CROP_TYPE,
+  PRODUCTION,
+  AVG_YIELD
+FROM crop_data
+WHERE GEO = 'Canada'
+  AND CROP_TYPE IN ('Barley', 'Rye', 'Wheat')
+ORDER BY YEAR, CROP_TYPE;
+```
+
 ```{r}
 #| label: production-trends
-#| echo: false
 #| fig-alt: "Lines showing Canadian barley, rye and wheat production from 1965 to 2020."
-plot_crop_trends(trends, "en")
+trends_notebook$YEAR <- as.Date(trends_notebook$YEAR)
+plot_crop_trends(trends_notebook, "en")
 ```
 
 Long-run volume provides supply context, but it does not represent inventory available for immediate purchase. Production also needs to be interpreted alongside grade, regional concentration and logistics.
@@ -144,9 +178,35 @@ Long-run volume provides supply context, but it does not represent inventory ava
 ## Provincial barley context
 
 ```{r}
+#| label: barley-share-parameters
+barley_crop <- "Barley"
+barley_year <- 2020L
+```
+
+```{sql, connection=connection, output.var="barley_shares_notebook"}
+--| label: sql-barley-share
+WITH national AS (
+  SELECT PRODUCTION
+  FROM crop_data
+  WHERE GEO = 'Canada'
+    AND CROP_TYPE = ?barley_crop
+    AND CAST(strftime('%Y', YEAR) AS INTEGER) = ?barley_year
+)
+SELECT
+  c.GEO AS geography,
+  c.PRODUCTION AS production_metric_tonnes,
+  ROUND(100.0 * c.PRODUCTION / national.PRODUCTION, 1) AS national_share_pct
+FROM crop_data AS c
+CROSS JOIN national
+WHERE c.GEO <> 'Canada'
+  AND c.CROP_TYPE = ?barley_crop
+  AND CAST(strftime('%Y', c.YEAR) AS INTEGER) = ?barley_year
+ORDER BY c.PRODUCTION DESC;
+```
+
+```{r}
 #| label: barley-share
-#| echo: false
-barley_shares |>
+barley_shares_notebook |>
   knitr::kable(
     col.names = c("Covered province", "Production (metric tonnes)", "Share of Canada (%)"),
     format.args = list(big.mark = ","),
@@ -159,17 +219,53 @@ The shares do not sum to 100% because the source includes only Alberta, Saskatch
 ## Price and currency exposure
 
 ```{r}
+#| label: price-parameters
+price_crop <- "Barley"
+price_geography <- "Saskatchewan"
+```
+
+```{sql, connection=connection, output.var="barley_prices_notebook"}
+--| label: sql-annual-prices
+SELECT
+  CAST(strftime('%Y', p.DATE) AS INTEGER) AS year,
+  ROUND(AVG(p.PRICE_PRERMT), 2) AS avg_price_cad,
+  ROUND(AVG(p.PRICE_PRERMT / fx.FXUSDCAD), 2) AS avg_price_usd,
+  COUNT(*) AS months_observed
+FROM farm_prices AS p
+INNER JOIN monthly_fx AS fx
+  ON p.DATE = fx.DATE
+WHERE p.CROP_TYPE = ?price_crop
+  AND p.GEO = ?price_geography
+GROUP BY CAST(strftime('%Y', p.DATE) AS INTEGER)
+ORDER BY year;
+```
+
+```{r}
 #| label: price-history
-#| echo: false
 #| fig-alt: "Lines comparing Saskatchewan barley farm prices in Canadian and US dollars from 2017 to 2020."
-plot_price_history(barley_prices, "en")
+plot_price_history(barley_prices_notebook, "en")
+```
+
+```{sql, connection=connection, output.var="recent_prices_notebook"}
+--| label: sql-recent-prices
+SELECT
+  p.DATE,
+  p.PRICE_PRERMT AS price_cad_per_tonne,
+  fx.FXUSDCAD AS cad_per_usd,
+  ROUND(p.PRICE_PRERMT / fx.FXUSDCAD, 2) AS price_usd_per_tonne
+FROM farm_prices AS p
+INNER JOIN monthly_fx AS fx
+  ON p.DATE = fx.DATE
+WHERE p.CROP_TYPE = ?price_crop
+  AND p.GEO = ?price_geography
+ORDER BY p.DATE DESC
+LIMIT 6;
 ```
 
 ```{r}
 #| label: latest-prices
-#| echo: false
-recent_crop_prices(connection, "Barley") |>
-  head(6) |>
+recent_prices_notebook |>
+  mutate(DATE = as.Date(DATE)) |>
   select(DATE, price_cad_per_tonne, cad_per_usd, price_usd_per_tonne) |>
   knitr::kable(
     col.names = c("Month", "CAD / tonne", "CAD per USD", "USD / tonne"),
@@ -183,7 +279,6 @@ The conversion is an analytical estimate based on monthly average FX, not an exe
 
 ```{r}
 #| label: scenario
-#| echo: false
 scenario |>
   select(
     crop, geography, price_date, volume_tonnes,
@@ -204,16 +299,9 @@ scenario |>
 This scenario multiplies observed farm price by volume. It excludes freight, quality premiums or discounts, storage, taxes, hedging, financing and negotiated terms. It is useful for sensitivity analysisâ€”not for placing an order.
 :::
 
-## SQL as a versioned analytical asset
+## SQL in the notebook and reusable layer
 
-The report no longer hides important queries inside notebook chunks. They live under [`sql/`](sql/) and are called by tested functions in [`R/analysis.R`](R/analysis.R).
-
-```{r}
-#| label: sql-example
-#| echo: false
-#| results: asis
-cat("```sql\n", read_sql("crop_market_snapshot.sql"), "\n```", sep = "")
-```
+The decision-driving SQL now appears beside the result it produces and executes during every render. This makes joins, filters, aggregation grain and parameter binding auditable without leaving the notebook. The equivalent production queries remain under [`sql/`](sql/) and are called by tested functions in [`R/analysis.R`](R/analysis.R), preserving a single reusable analytics layer for applications and automated tests.
 
 ## Reproduce the project
 

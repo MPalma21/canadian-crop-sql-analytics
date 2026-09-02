@@ -2155,19 +2155,19 @@
       "checksum": "383a03f11325b62e850f2053b22e7248"
     },
     "_freeze/es/index/execute-results/html.json": {
-      "checksum": "6239443c91498e0f5cd831fb2f827052"
+      "checksum": "8cec04a04ed21730195e8ad34c361084"
     },
     "_freeze/es/index/figure-html/latest-production-1.png": {
-      "checksum": "df7bb3388ca3ad34baf72c93f9f8ba0d"
+      "checksum": "35e767317b28831a1b0c4151b60d8b0f"
     },
     "_freeze/es/index/figure-html/price-history-1.png": {
-      "checksum": "b680cc306155f37c8b1f5cee02c0fd1d"
+      "checksum": "e785a9c6ee761351b687cae68394a472"
     },
     "_freeze/es/index/figure-html/production-trends-1.png": {
-      "checksum": "9efe9119cbbc1f88a93410c3ed76cf5e"
+      "checksum": "c31b819ce37d6d6b97e5caac40f0c3f6"
     },
     "_freeze/index/execute-results/html.json": {
-      "checksum": "fb41ebf8d87e14b16023d3309ae6115d"
+      "checksum": "8e42c5e19f6cd75c2e15ada2b732d1a8"
     },
     "_freeze/index/figure-html/latest-production-1.png": {
       "checksum": "1e174712f5bd15b904f5a903be1c187c"
@@ -2176,13 +2176,13 @@
       "checksum": "ad79c5440f96be6fabadf0cc68875170"
     },
     "_freeze/index/figure-html/production-trends-1.png": {
-      "checksum": "04f129d0c93a8506ac0d0c77affc55c2"
+      "checksum": "698e24d8c4e953b7431cdaa990345c9d"
     },
     "_freeze/site_libs/clipboard/clipboard.min.js": {
       "checksum": "722242f7b6e0fa3b8d25070388a5c826"
     },
     "_quarto.yml": {
-      "checksum": "6aa3587f8ed7e77432a347ee92325908"
+      "checksum": "41d172907fdf0717c613fc960c05d9a3"
     },
     "assets/code-tools-fix.html": {
       "checksum": "0cb7444da06f8a2970b12c04dd39a66e"
@@ -2218,10 +2218,10 @@
       "checksum": "223439cf81d8f139b8cbfbf5f688478d"
     },
     "es/index.qmd": {
-      "checksum": "aca9d839b8b4e07c1636dcd1bae350b5"
+      "checksum": "c7e9cad3909fd491f8e4838b93874594"
     },
     "index.qmd": {
-      "checksum": "d6fcd173d823714a3c0d5170f2facbfe"
+      "checksum": "30c0855d4b02bb4eb586e67f7fd98228"
     },
     "LICENSE": {
       "checksum": "662ecf378d290224c6e46257db0861a7"

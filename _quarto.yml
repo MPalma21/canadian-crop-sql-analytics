@@ -40,9 +40,11 @@ format:
     css: assets/styles.css
     toc: true
     toc-depth: 3
-    code-fold: true
+    code-fold: false
     code-tools: true
     code-copy: true
+    code-line-numbers: true
+    code-overflow: scroll
     include-after-body: assets/code-tools-fix.html
     smooth-scroll: true
     fig-responsive: true
