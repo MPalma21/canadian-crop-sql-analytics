@@ -86,7 +86,6 @@ Cervecerías, destilerías y productores de alimentos necesitan vigilar disponib
 
 ```{r}
 #| label: data-quality
-#| echo: false
 quality |>
   transform(
     first_date = format(first_date, "%Y-%m-%d"),
@@ -120,11 +119,33 @@ La base se reconstruye en cada ejecución. Índices compuestos respaldan las con
 
 ## Producción nacional
 
+La consulta analítica se ejecuta directamente en el cuaderno para que la transformación desde los datos relacionales hasta el gráfico sea visible y reproducible.
+
+```{sql, connection=connection, output.var="latest_notebook"}
+--| label: sql-latest-production
+WITH latest_year AS (
+  SELECT MAX(YEAR) AS year
+  FROM crop_data
+  WHERE GEO = 'Canada'
+)
+SELECT
+  c.YEAR,
+  c.CROP_TYPE,
+  c.SEEDED_AREA AS seeded_area_hectares,
+  c.HARVESTED_AREA AS harvested_area_hectares,
+  c.PRODUCTION AS production_metric_tonnes,
+  c.AVG_YIELD AS yield_kg_per_hectare
+FROM crop_data AS c
+INNER JOIN latest_year AS y
+  ON c.YEAR = y.year
+WHERE c.GEO = 'Canada'
+ORDER BY c.PRODUCTION DESC;
+```
+
 ```{r}
 #| label: latest-production
-#| echo: false
 #| fig-alt: "Barras que comparan la producción canadiense de trigo, canola, cebada y centeno en 2020."
-latest |>
+latest_notebook |>
   mutate(cultivo = unname(crop_es[CROP_TYPE])) |>
   ggplot(aes(reorder(cultivo, production_metric_tonnes), production_metric_tonnes, fill = cultivo)) +
   geom_col(show.legend = FALSE, width = 0.7) +
@@ -141,11 +162,24 @@ latest |>
   theme(plot.title = element_text(face = "bold"), panel.grid.minor = element_blank())
 ```
 
+```{sql, connection=connection, output.var="trends_notebook"}
+--| label: sql-production-trends
+SELECT
+  YEAR,
+  CROP_TYPE,
+  PRODUCTION,
+  AVG_YIELD
+FROM crop_data
+WHERE GEO = 'Canada'
+  AND CROP_TYPE IN ('Barley', 'Rye', 'Wheat')
+ORDER BY YEAR, CROP_TYPE;
+```
+
 ```{r}
 #| label: production-trends
-#| echo: false
 #| fig-alt: "Líneas de producción canadiense de cebada, centeno y trigo entre 1965 y 2020."
-plot_crop_trends(trends, "es")
+trends_notebook$YEAR <- as.Date(trends_notebook$YEAR)
+plot_crop_trends(trends_notebook, "es")
 ```
 
 El volumen histórico aporta contexto de oferta, pero no representa inventario disponible para compra inmediata. También debe interpretarse junto con calidad, concentración regional y logística.
@@ -153,9 +187,35 @@ El volumen histórico aporta contexto de oferta, pero no representa inventario d
 ## Contexto provincial de la cebada
 
 ```{r}
+#| label: barley-share-parameters
+barley_crop <- "Barley"
+barley_year <- 2020L
+```
+
+```{sql, connection=connection, output.var="barley_shares_notebook"}
+--| label: sql-barley-share
+WITH national AS (
+  SELECT PRODUCTION
+  FROM crop_data
+  WHERE GEO = 'Canada'
+    AND CROP_TYPE = ?barley_crop
+    AND CAST(strftime('%Y', YEAR) AS INTEGER) = ?barley_year
+)
+SELECT
+  c.GEO AS geography,
+  c.PRODUCTION AS production_metric_tonnes,
+  ROUND(100.0 * c.PRODUCTION / national.PRODUCTION, 1) AS national_share_pct
+FROM crop_data AS c
+CROSS JOIN national
+WHERE c.GEO <> 'Canada'
+  AND c.CROP_TYPE = ?barley_crop
+  AND CAST(strftime('%Y', c.YEAR) AS INTEGER) = ?barley_year
+ORDER BY c.PRODUCTION DESC;
+```
+
+```{r}
 #| label: barley-share
-#| echo: false
-barley_shares |>
+barley_shares_notebook |>
   knitr::kable(
     col.names = c("Provincia cubierta", "Producción (toneladas)", "Participación nacional (%)"),
     format.args = list(big.mark = ","),
@@ -168,17 +228,53 @@ Las participaciones no suman 100% porque la fuente solo contiene Alberta, Saskat
 ## Exposición a precio y moneda
 
 ```{r}
+#| label: price-parameters
+price_crop <- "Barley"
+price_geography <- "Saskatchewan"
+```
+
+```{sql, connection=connection, output.var="barley_prices_notebook"}
+--| label: sql-annual-prices
+SELECT
+  CAST(strftime('%Y', p.DATE) AS INTEGER) AS year,
+  ROUND(AVG(p.PRICE_PRERMT), 2) AS avg_price_cad,
+  ROUND(AVG(p.PRICE_PRERMT / fx.FXUSDCAD), 2) AS avg_price_usd,
+  COUNT(*) AS months_observed
+FROM farm_prices AS p
+INNER JOIN monthly_fx AS fx
+  ON p.DATE = fx.DATE
+WHERE p.CROP_TYPE = ?price_crop
+  AND p.GEO = ?price_geography
+GROUP BY CAST(strftime('%Y', p.DATE) AS INTEGER)
+ORDER BY year;
+```
+
+```{r}
 #| label: price-history
-#| echo: false
 #| fig-alt: "Líneas que comparan el precio agrícola de la cebada de Saskatchewan en dólares canadienses y estadounidenses entre 2017 y 2020."
-plot_price_history(barley_prices, "es")
+plot_price_history(barley_prices_notebook, "es")
+```
+
+```{sql, connection=connection, output.var="recent_prices_notebook"}
+--| label: sql-recent-prices
+SELECT
+  p.DATE,
+  p.PRICE_PRERMT AS price_cad_per_tonne,
+  fx.FXUSDCAD AS cad_per_usd,
+  ROUND(p.PRICE_PRERMT / fx.FXUSDCAD, 2) AS price_usd_per_tonne
+FROM farm_prices AS p
+INNER JOIN monthly_fx AS fx
+  ON p.DATE = fx.DATE
+WHERE p.CROP_TYPE = ?price_crop
+  AND p.GEO = ?price_geography
+ORDER BY p.DATE DESC
+LIMIT 6;
 ```
 
 ```{r}
 #| label: latest-prices
-#| echo: false
-recent_crop_prices(connection, "Barley") |>
-  head(6) |>
+recent_prices_notebook |>
+  mutate(DATE = as.Date(DATE)) |>
   select(DATE, price_cad_per_tonne, cad_per_usd, price_usd_per_tonne) |>
   knitr::kable(
     col.names = c("Mes", "CAD / tonelada", "CAD por USD", "USD / tonelada"),
@@ -192,7 +288,6 @@ La conversión es una estimación analítica basada en tasa mensual promedio, no
 
 ```{r}
 #| label: scenario
-#| echo: false
 scenario |>
   mutate(crop = unname(crop_es[crop])) |>
   select(
@@ -214,16 +309,9 @@ scenario |>
 El escenario multiplica precio agrícola por volumen. Excluye transporte, primas de calidad, almacenamiento, impuestos, coberturas, financiación y negociación. Sirve para sensibilidad, no para emitir una orden.
 :::
 
-## SQL como activo analítico versionado
+## SQL en el cuaderno y capa reutilizable
 
-Las consultas importantes ya no están ocultas dentro del cuaderno. Viven en [`sql/`](../sql/) y son llamadas por funciones probadas en [`R/analysis.R`](../R/analysis.R).
-
-```{r}
-#| label: sql-example
-#| echo: false
-#| results: asis
-cat("```sql\n", read_sql("crop_market_snapshot.sql"), "\n```", sep = "")
-```
+El SQL que conduce las decisiones ahora aparece junto al resultado que produce y se ejecuta en cada render. Así pueden auditarse uniones, filtros, nivel de agregación y parámetros sin salir del cuaderno. Las consultas equivalentes de producción permanecen en [`sql/`](../sql/) y son llamadas por funciones probadas en [`R/analysis.R`](../R/analysis.R), conservando una capa analítica reutilizable para aplicaciones y pruebas automatizadas.
 
 ## Reproducir el proyecto
 
