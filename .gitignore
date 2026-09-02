@@ -7,7 +7,6 @@
 /renv/library/
 /renv/staging/
 /.r-lib*/
-/manifest.json
 
 
 **/*.quarto_ipynb
