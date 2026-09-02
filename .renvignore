@@ -1,0 +1,6 @@
+.git/
+.r-lib*/
+_freeze/
+_site/
+data/
+manifest.json

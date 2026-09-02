@@ -1,0 +1,71 @@
+:root {
+  --crop-green: #1f6f5f;
+  --crop-teal: #2a9d8f;
+  --crop-gold: #e9c46a;
+  --crop-ink: #243238;
+}
+
+.hero-panel {
+  padding: 1.4rem 1.6rem;
+  margin: 0.5rem 0 1.5rem;
+  border-left: 5px solid var(--crop-teal);
+  border-radius: 0.5rem;
+  background: linear-gradient(135deg, rgba(42, 157, 143, 0.12), rgba(233, 196, 106, 0.13));
+  font-size: 1.08rem;
+}
+
+.metric-card {
+  display: flex;
+  min-height: 150px;
+  padding: 1.2rem;
+  flex-direction: column;
+  justify-content: center;
+  border: 1px solid rgba(42, 157, 143, 0.3);
+  border-radius: 0.7rem;
+  background: rgba(255, 255, 255, 0.75);
+  box-shadow: 0 8px 22px rgba(36, 50, 56, 0.07);
+}
+
+.metric-label {
+  color: var(--crop-green);
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.metric-value {
+  margin: 0.25rem 0;
+  color: var(--crop-ink);
+  font-size: clamp(1.55rem, 3vw, 2.15rem);
+  font-weight: 750;
+  line-height: 1.05;
+}
+
+.metric-note {
+  color: #5d6b70;
+  font-size: 0.88rem;
+}
+
+@media (prefers-color-scheme: dark) {
+  .metric-card {
+    background: rgba(31, 45, 50, 0.88);
+  }
+
+  .metric-value {
+    color: #f6f7f7;
+  }
+
+  .metric-note {
+    color: #c8d1d3;
+  }
+}
+
+table {
+  font-size: 0.93rem;
+}
+
+h2 {
+  margin-top: 2.3rem;
+  color: var(--crop-green);
+}

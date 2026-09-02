@@ -1,231 +1,240 @@
 ---
-title: "Canadian Crop Production for Brewing and Distilling"
-subtitle: "A reproducible SQL analysis of production, yield, prices and exchange rates"
+title: "Canadian Crop Market Analytics"
+subtitle: "Production, farm prices and currency exposure for grain procurement"
 author: "Miguelangel Palma Rojas"
 date: last-modified
 lang: en
+description: "A bilingual, reproducible R and SQLite case study for Canadian crop market intelligence."
 ---
 
-## Business question
-
-Canadian microbreweries and microdistilleries depend on grains whose availability and cost change across provinces and years. This notebook exposes the complete workflow: CSV ingestion, validation, SQLite construction, parameterized SQL, currency conversion, and visualization.
-
-## Load packages
-
 ```{r}
-#| label: packages
-#| message: false
-#| warning: false
-library(DBI)
-library(dplyr)
-library(ggplot2)
-library(here)
-library(knitr)
-library(RSQLite)
-library(scales)
-library(tibble)
+#| label: setup
+#| include: false
+source(here::here("R", "analysis.R"))
+
+sources <- read_crop_sources()
+connection <- build_crop_database(sources)
+
+trends <- national_crop_trends(connection)
+latest <- latest_national_production(connection)
+barley_snapshot <- crop_market_snapshot(connection, "Barley")
+barley_shares <- provincial_supply_share(connection, "Barley")
+barley_prices <- annual_crop_prices(connection, "Barley")
+scenario <- procurement_scenario(connection, "Barley", volume_tonnes = 250)
+quality <- data_quality_summary(sources)
+
+leader <- latest[which.max(latest$production_metric_tonnes), ]
 ```
 
-## Read and validate four sources
+::: {.hero-panel}
+This portfolio project converts four preserved agricultural and foreign-exchange datasets into a validated SQLite decision layer. It demonstrates how an analyst can move from raw snapshots to parameterized SQL, explicit units, tested business logic and an executive interpretation.
+:::
+
+## Executive snapshot
+
+::: {.grid}
+::: {.g-col-12 .g-col-md-4}
+::: {.metric-card}
+<span class="metric-label">Largest 2020 crop</span>
+<span class="metric-value">`r leader$CROP_TYPE`</span>
+<span class="metric-note">`r scales::comma(leader$production_metric_tonnes)` metric tonnes</span>
+:::
+:::
+
+::: {.g-col-12 .g-col-md-4}
+::: {.metric-card}
+<span class="metric-label">Barley farm price</span>
+<span class="metric-value">CAD `r scales::number(barley_snapshot$price_cad_per_tonne, accuracy = 0.01)`</span>
+<span class="metric-note">per metric tonne · `r format(barley_snapshot$price_date, "%b %Y")`</span>
+:::
+:::
+
+::: {.g-col-12 .g-col-md-4}
+::: {.metric-card}
+<span class="metric-label">250-tonne scenario</span>
+<span class="metric-value">CAD `r scales::comma(scenario$estimated_cost_cad, accuracy = 1)`</span>
+<span class="metric-note">farm-price estimate before logistics and contracts</span>
+:::
+:::
+:::
+
+### What the evidence says
+
+- **Wheat leads national volume.** In the latest annual snapshot, `r leader$CROP_TYPE` is the largest of the four covered crops.
+- **Provincial context matters.** Alberta and Saskatchewan represent only the provincial observations included in this teaching dataset; the remainder of Canada is not decomposed.
+- **Currency changes the USD view.** Dividing CAD per tonne by CAD per USD provides a comparable USD estimate for months where price and FX observations overlap.
+- **This is a monitoring layer, not a purchasing recommendation.** Grade, freight, basis, storage, counterparties and contract terms remain outside the data.
+
+## Decision question
+
+Canadian breweries, distilleries and food manufacturers need to monitor grain availability and farm-price exposure. This analysis asks:
+
+1. Which covered crops dominate national production?
+2. How have barley, rye and wheat volumes changed over time?
+3. How much of national barley production is represented by Alberta and Saskatchewan?
+4. How do Saskatchewan barley prices translate from CAD to USD?
+5. What would a simple volume scenario cost before commercial adjustments?
+
+## Data quality and coverage
 
 ```{r}
-#| label: read-data
-crop <- read.csv(here("data", "annual_crop.csv"), stringsAsFactors = FALSE)
-daily_fx <- read.csv(here("data", "daily_fx.csv"), stringsAsFactors = FALSE)
-monthly_fx <- read.csv(here("data", "monthly_fx.csv"), stringsAsFactors = FALSE)
-farm_prices <- read.csv(
-  here("data", "monthly_farm_prices.csv"),
-  stringsAsFactors = FALSE
-)
-
-crop$YEAR <- as.Date(crop$YEAR)
-crop$YEAR_NUMBER <- as.integer(format(crop$YEAR, "%Y"))
-daily_fx$DATE <- as.Date(daily_fx$DATE)
-monthly_fx$DATE <- as.Date(monthly_fx$DATE)
-farm_prices$DATE <- as.Date(farm_prices$DATE)
-
-required_crop_columns <- c(
-  "CD_ID", "YEAR", "CROP_TYPE", "GEO", "SEEDED_AREA",
-  "HARVESTED_AREA", "PRODUCTION", "AVG_YIELD"
-)
-required_fx_columns <- c("DFX_ID", "DATE", "FXUSDCAD")
-required_price_columns <- c(
-  "CD_ID", "DATE", "CROP_TYPE", "GEO", "PRICE_PRERMT"
-)
-
-stopifnot(
-  all(required_crop_columns %in% names(crop)),
-  all(required_fx_columns %in% names(daily_fx)),
-  all(required_fx_columns %in% names(monthly_fx)),
-  all(required_price_columns %in% names(farm_prices)),
-  nrow(crop) > 0,
-  nrow(daily_fx) > 0,
-  nrow(monthly_fx) > 0,
-  nrow(farm_prices) > 0,
-  anyDuplicated(crop$CD_ID) == 0
-)
-
-tibble(
-  table = c("crop_data", "daily_fx", "monthly_fx", "farm_prices"),
-  records = c(
-    nrow(crop),
-    nrow(daily_fx),
-    nrow(monthly_fx),
-    nrow(farm_prices)
+#| label: data-quality
+#| echo: false
+quality |>
+  transform(
+    first_date = format(first_date, "%Y-%m-%d"),
+    last_date = format(last_date, "%Y-%m-%d")
+  ) |>
+  knitr::kable(
+    col.names = c("Dataset", "Records", "First observation", "Last observation", "Missing cells"),
+    format.args = list(big.mark = ",")
   )
-) |>
-  kable()
 ```
 
-## Build SQLite during the render
+The committed files are dated snapshots, not live feeds. Their URLs, checksums and retrieval metadata are documented under `data/`. See the complete [data dictionary](docs/data-dictionary.md).
 
-The database is temporary, so the repository stores transparent CSV snapshots rather than a binary database.
+## Analytical architecture
 
-```{r}
-#| label: build-database
-database_path <- tempfile(fileext = ".sqlite")
-connection <- dbConnect(SQLite(), database_path)
-
-dbWriteTable(connection, "crop_data", crop, overwrite = TRUE)
-dbWriteTable(connection, "daily_fx", daily_fx, overwrite = TRUE)
-dbWriteTable(connection, "monthly_fx", monthly_fx, overwrite = TRUE)
-dbWriteTable(connection, "farm_prices", farm_prices, overwrite = TRUE)
-
-dbListTables(connection)
+```{mermaid}
+flowchart LR
+  A[Validated CSV snapshots] --> B[(Temporary SQLite)]
+  B --> C[Versioned SQL files]
+  C --> D[R analytical functions]
+  D --> E[English report]
+  D --> F[Spanish report]
+  G[testthat] --> B
+  G --> C
+  H[GitHub Actions] --> G
+  H --> E
+  H --> F
 ```
 
-## National production trends
+The database is recreated during every run. Composite indexes support the crop–geography–time access patterns, while parameterized queries keep user-supplied values outside SQL text. The full model is documented in [Analytical architecture](docs/architecture.md).
 
-The crop names are passed as bound parameters rather than pasted into SQL.
-
-```{r}
-#| label: production-query
-production_sql <- "
-  SELECT YEAR, CROP_TYPE, PRODUCTION
-  FROM crop_data
-  WHERE GEO = 'Canada'
-    AND CROP_TYPE IN (?, ?, ?)
-  ORDER BY YEAR, CROP_TYPE
-"
-
-production_trends <- dbGetQuery(
-  connection,
-  production_sql,
-  params = list("Barley", "Rye", "Wheat")
-)
-
-production_trends$YEAR <- as.Date(
-  production_trends$YEAR,
-  origin = "1970-01-01"
-)
-
-latest_production <- production_trends |>
-  filter(YEAR == max(YEAR)) |>
-  slice_max(PRODUCTION, n = 1, with_ties = FALSE)
-```
+## National production
 
 ```{r}
-#| label: production-chart
-#| fig-alt: "Lines showing Canadian barley, rye, and wheat production over time."
-ggplot(
-  production_trends,
-  aes(x = YEAR, y = PRODUCTION, color = CROP_TYPE)
-) +
-  geom_line(linewidth = 0.8) +
-  scale_y_continuous(labels = label_number(scale_cut = cut_short_scale())) +
-  scale_color_viridis_d(end = 0.85) +
+#| label: latest-production
+#| echo: false
+#| fig-alt: "Bar chart comparing Canadian production of wheat, canola, barley and rye in 2020."
+ggplot(latest, aes(reorder(CROP_TYPE, production_metric_tonnes), production_metric_tonnes, fill = CROP_TYPE)) +
+  geom_col(show.legend = FALSE, width = 0.7) +
+  coord_flip() +
+  scale_y_continuous(labels = scales::label_number(scale_cut = scales::cut_short_scale())) +
+  scale_fill_viridis_d(end = 0.85) +
   labs(
-    title = "Canadian crop production over time",
-    x = "Year",
-    y = "Production (metric tonnes)",
-    color = "Crop"
+    title = "Wheat dominates the latest national snapshot",
+    subtitle = "Canadian production in 2020",
+    x = NULL,
+    y = "Metric tonnes"
   ) +
   theme_minimal(base_size = 12) +
-  theme(
-    plot.title = element_text(face = "bold"),
-    legend.position = "bottom"
+  theme(plot.title = element_text(face = "bold"), panel.grid.minor = element_blank())
+```
+
+```{r}
+#| label: production-trends
+#| echo: false
+#| fig-alt: "Lines showing Canadian barley, rye and wheat production from 1965 to 2020."
+plot_crop_trends(trends, "en")
+```
+
+Long-run volume provides supply context, but it does not represent inventory available for immediate purchase. Production also needs to be interpreted alongside grade, regional concentration and logistics.
+
+## Provincial barley context
+
+```{r}
+#| label: barley-share
+#| echo: false
+barley_shares |>
+  knitr::kable(
+    col.names = c("Covered province", "Production (metric tonnes)", "Share of Canada (%)"),
+    format.args = list(big.mark = ","),
+    digits = 1
   )
 ```
 
-## Highest yields in Saskatchewan
+The shares do not sum to 100% because the source includes only Alberta, Saskatchewan and the Canadian total. That constraint is made explicit instead of treating the two provinces as a complete provincial breakdown.
 
-Geography, year, and result count are all bound parameters.
+## Price and currency exposure
 
 ```{r}
-#| label: yield-query
-yield_sql <- "
-  SELECT
-    CROP_TYPE,
-    ROUND(AVG(AVG_YIELD), 1) AS average_yield
-  FROM crop_data
-  WHERE GEO = ? AND YEAR_NUMBER = ?
-  GROUP BY CROP_TYPE
-  ORDER BY average_yield DESC
-  LIMIT ?
-"
-
-top_yields <- dbGetQuery(
-  connection,
-  yield_sql,
-  params = list("Saskatchewan", 2000L, 6L)
-)
-
-top_yields |>
-  kable(col.names = c("Crop", "Average yield"))
+#| label: price-history
+#| echo: false
+#| fig-alt: "Lines comparing Saskatchewan barley farm prices in Canadian and US dollars from 2017 to 2020."
+plot_price_history(barley_prices, "en")
 ```
 
-## Canola prices in CAD and USD
+```{r}
+#| label: latest-prices
+#| echo: false
+recent_crop_prices(connection, "Barley") |>
+  head(6) |>
+  select(DATE, price_cad_per_tonne, cad_per_usd, price_usd_per_tonne) |>
+  knitr::kable(
+    col.names = c("Month", "CAD / tonne", "CAD per USD", "USD / tonne"),
+    digits = c(0, 2, 4, 2)
+  )
+```
 
-The query joins monthly prices and exchange rates by date. Dividing CAD per tonne by CAD per USD produces USD per tonne.
+The conversion is an analytical estimate based on monthly average FX, not an executable foreign-exchange quote.
+
+## Procurement scenario
 
 ```{r}
-#| label: price-query
-price_sql <- "
-  SELECT
-    p.DATE,
-    p.PRICE_PRERMT AS price_cad_per_tonne,
-    fx.FXUSDCAD,
-    ROUND(p.PRICE_PRERMT / fx.FXUSDCAD, 2) AS price_usd_per_tonne
-  FROM farm_prices p
-  INNER JOIN monthly_fx fx ON p.DATE = fx.DATE
-  WHERE p.CROP_TYPE = 'Canola' AND p.GEO = ?
-  ORDER BY p.DATE DESC
-  LIMIT ?
-"
-
-canola_prices <- dbGetQuery(
-  connection,
-  price_sql,
-  params = list("Saskatchewan", 12L)
-)
-
-canola_prices$DATE <- as.Date(canola_prices$DATE, origin = "1970-01-01")
-
-canola_prices |>
-  slice_head(n = 6) |>
-  kable(
-    col.names = c("Date", "CAD / tonne", "CAD per USD", "USD / tonne"),
+#| label: scenario
+#| echo: false
+scenario |>
+  select(
+    crop, geography, price_date, volume_tonnes,
+    unit_price_cad, unit_price_usd,
+    estimated_cost_cad, estimated_cost_usd
+  ) |>
+  knitr::kable(
+    col.names = c(
+      "Crop", "Province", "Price month", "Volume (t)",
+      "CAD / t", "USD / t", "Estimated CAD", "Estimated USD"
+    ),
+    format.args = list(big.mark = ","),
     digits = 2
   )
 ```
 
-## Decision notes
+::: {.callout-warning title="Interpretation boundary"}
+This scenario multiplies observed farm price by volume. It excludes freight, quality premiums or discounts, storage, taxes, hedging, financing and negotiated terms. It is useful for sensitivity analysis—not for placing an order.
+:::
 
-- Production volume provides supply context, not immediately available inventory.
-- Provincial detail matters for procurement decisions.
-- Currency conversion is a dated estimate, not a transaction quote.
-- Transportation, quality, and contracts remain outside this dataset.
+## SQL as a versioned analytical asset
+
+The report no longer hides important queries inside notebook chunks. They live under [`sql/`](sql/) and are called by tested functions in [`R/analysis.R`](R/analysis.R).
 
 ```{r}
-#| label: disconnect
-dbDisconnect(connection)
+#| label: sql-example
+#| echo: false
+#| results: asis
+cat("```sql\n", read_sql("crop_market_snapshot.sql"), "\n```", sep = "")
 ```
+
+## Reproduce the project
+
+```bash
+Rscript -e "if (!requireNamespace('renv', quietly = TRUE)) install.packages('renv')"
+Rscript -e "renv::restore()"
+Rscript data-raw/prepare-data.R   # optional: refresh the preserved snapshots
+Rscript tests/testthat.R
+quarto render
+```
+
+GitHub Actions executes validation, tests and a full bilingual render for every pull request. The generated website is uploaded as a workflow artifact.
 
 ## Conclusion
 
-- Within the three national series, `r latest_production$CROP_TYPE[[1]]` has the largest production in `r format(latest_production$YEAR[[1]], "%Y")`, reaching `r format(latest_production$PRODUCTION[[1]], big.mark = ",", scientific = FALSE)` metric tonnes. This establishes the dominant volume signal in the latest shared year.
-- The parameterized Saskatchewan query ranks `r top_yields$CROP_TYPE[[1]]` first in 2000 with an average yield of `r format(top_yields$average_yield[[1]], big.mark = ",")` in the source dataset's reported yield units.
-- For `r format(canola_prices$DATE[[1]], "%B %Y")`, canola is `r sprintf("%.2f", canola_prices$price_cad_per_tonne[[1]])` CAD per tonne. At `r sprintf("%.4f", canola_prices$FXUSDCAD[[1]])` CAD per USD, the joined estimate is `r sprintf("%.2f", canola_prices$price_usd_per_tonne[[1]])` USD per tonne.
-- These results support supply and currency monitoring, but not a purchasing decision by themselves: transport costs, quality grades, contract terms, and basis risk are absent from the relational model.
+The strongest market signal in the covered data is the scale difference between wheat and the other crops, while Saskatchewan and Alberta provide useful—but incomplete—regional context. The price/FX join adds a procurement-oriented currency view, and the scenario layer makes assumptions auditable. A production decision would still require current quotes, delivered-cost modeling, grades, logistics and contract terms.
 
-See the [Spanish version](es/index.qmd).
+Continue with the [Spanish version](es/index.qmd) or inspect the [source and methodology](https://github.com/MPalma21/canadian-crop-sql-analytics).
+
+```{r}
+#| label: disconnect
+#| include: false
+DBI::dbDisconnect(connection)
+```

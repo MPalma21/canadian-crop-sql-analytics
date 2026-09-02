@@ -1,0 +1,5 @@
+"dataset","snapshot_date","rows","bytes","md5","source_url"
+"annual_crop","2026-09-01",672,39208,"9de5491b0f3b31050792163733e79d74","https://cf-courses-data.s3.us.cloud-object-storage.appdomain.cloud/IBM-RP0203EN-SkillsNetwork/labs/Practice%20Assignment/Annual_Crop_Data.csv"
+"daily_fx","2026-09-01",1033,22568,"1066981078032c5c9d1600a6541617c8","https://cf-courses-data.s3.us.cloud-object-storage.appdomain.cloud/IBM-RP0203EN-SkillsNetwork/labs/Practice%20Assignment/Daily_FX.csv"
+"monthly_fx","2026-09-01",50,1260,"3034912db007c08270c85db6e8b1d02b","https://cf-courses-data.s3.us.cloud-object-storage.appdomain.cloud/IBM-RP0203EN-SkillsNetwork/labs/Final%20Project/Monthly_FX.csv"
+"monthly_farm_prices","2026-09-01",2678,103850,"533861705d0bebc2e39e5c442f327a47","https://cf-courses-data.s3.us.cloud-object-storage.appdomain.cloud/IBM-RP0203EN-SkillsNetwork/labs/Final%20Project/Monthly_Farm_Prices.csv"
